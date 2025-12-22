@@ -1,0 +1,215 @@
+# Drizzle ORM Database Interaction Guidelines
+
+This project uses **Drizzle ORM** for all database interactions with PostgreSQL (Neon).
+
+## Database Configuration
+
+- **ORM**: Drizzle ORM with Neon HTTP adapter
+- **Database**: PostgreSQL (Neon Serverless)
+- **Schema Location**: `db/schema.ts`
+- **Database Client**: `db/index.ts`
+- **Drizzle Config**: `drizzle.config.ts`
+
+## Database Schema
+
+The application uses the following tables defined in `db/schema.ts`:
+
+### Tables
+- **decksTable**: Stores flashcard decks
+  - `id`: Auto-generated primary key
+  - `userId`: Clerk user ID (varchar 255)
+  - `name`: Deck name (varchar 255)
+  - `description`: Optional text description
+  - `createdAt`, `updatedAt`: Timestamps
+
+- **cardsTable**: Stores individual flashcards
+  - `id`: Auto-generated primary key
+  - `deckId`: Foreign key to decksTable (cascading delete)
+  - `front`: Front of card (text)
+  - `back`: Back of card (text)
+  - `createdAt`, `updatedAt`: Timestamps
+
+## Required Imports
+
+```typescript
+// Database client
+import { db } from '@/db';
+
+// Schema tables
+import { decksTable, cardsTable } from '@/db/schema';
+
+// Drizzle query builders and operators
+import { eq, and, or, desc, asc, like, ilike } from 'drizzle-orm';
+```
+
+## Database Operations
+
+### Query Patterns
+
+**Select All Records**
+```typescript
+const decks = await db.select().from(decksTable);
+```
+
+**Select with Conditions**
+```typescript
+const userDecks = await db
+  .select()
+  .from(decksTable)
+  .where(eq(decksTable.userId, userId));
+```
+
+**Select Single Record**
+```typescript
+const deck = await db
+  .select()
+  .from(decksTable)
+  .where(eq(decksTable.id, deckId))
+  .limit(1);
+```
+
+**Insert Records**
+```typescript
+const [newDeck] = await db
+  .insert(decksTable)
+  .values({
+    userId: userId,
+    name: deckName,
+    description: description,
+  })
+  .returning();
+```
+
+**Update Records**
+```typescript
+await db
+  .update(decksTable)
+  .set({ 
+    name: newName,
+    updatedAt: new Date(),
+  })
+  .where(eq(decksTable.id, deckId));
+```
+
+**Delete Records**
+```typescript
+await db
+  .delete(decksTable)
+  .where(eq(decksTable.id, deckId));
+```
+
+**Join Queries**
+```typescript
+const decksWithCards = await db
+  .select()
+  .from(decksTable)
+  .leftJoin(cardsTable, eq(cardsTable.deckId, decksTable.id))
+  .where(eq(decksTable.userId, userId));
+```
+
+### Complex Filtering
+
+**Multiple Conditions**
+```typescript
+const results = await db
+  .select()
+  .from(cardsTable)
+  .where(
+    and(
+      eq(cardsTable.deckId, deckId),
+      like(cardsTable.front, '%search%')
+    )
+  );
+```
+
+**OR Conditions**
+```typescript
+const results = await db
+  .select()
+  .from(decksTable)
+  .where(
+    or(
+      like(decksTable.name, '%search%'),
+      like(decksTable.description, '%search%')
+    )
+  );
+```
+
+**Sorting**
+```typescript
+const sortedDecks = await db
+  .select()
+  .from(decksTable)
+  .orderBy(desc(decksTable.createdAt));
+```
+
+## Best Practices
+
+1. **Always use the Drizzle schema**: Never write raw SQL queries. Use the schema definitions from `db/schema.ts`
+
+2. **Import the db client**: Always import `{ db }` from `@/db` for database operations
+
+3. **Use type-safe operators**: Import operators like `eq`, `and`, `or` from `drizzle-orm` instead of writing SQL strings
+
+4. **Handle timestamps**: When updating records, always update the `updatedAt` field:
+   ```typescript
+   .set({ ...fields, updatedAt: new Date() })
+   ```
+
+5. **Use returning()**: When inserting or updating, use `.returning()` to get the updated record:
+   ```typescript
+   const [updated] = await db.update(table).set(data).returning();
+   ```
+
+6. **Server-side only**: All database operations must be performed server-side (API routes, Server Actions, Server Components)
+
+7. **Error handling**: Always wrap database operations in try-catch blocks:
+   ```typescript
+   try {
+     const result = await db.select().from(decksTable);
+     return result;
+   } catch (error) {
+     console.error('Database error:', error);
+     throw new Error('Failed to fetch decks');
+   }
+   ```
+
+8. **User authorization**: Always filter by `userId` for user-specific queries:
+   ```typescript
+   .where(eq(decksTable.userId, currentUserId))
+   ```
+
+## Migration Commands
+
+```bash
+# Generate migrations after schema changes
+npx drizzle-kit generate
+
+# Push schema changes to database
+npx drizzle-kit push
+
+# Open Drizzle Studio to view/edit data
+npx drizzle-kit studio
+```
+
+## Environment Variables
+
+Ensure `DATABASE_URL` is set in `.env.local`:
+```
+DATABASE_URL=postgresql://...
+```
+
+## Forbidden Practices
+
+❌ **DO NOT** write raw SQL queries
+❌ **DO NOT** use other database libraries (Prisma, TypeORM, etc.)
+❌ **DO NOT** access the database from client components
+❌ **DO NOT** expose database credentials to the client
+❌ **DO NOT** bypass the schema definitions
+❌ **DO NOT** perform database operations without user authorization checks
+
+## Additional Resources
+
+- Drizzle ORM Documentation: https://orm.drizzle.team/
+- Drizzle Queries: https://orm.drizzle.team/docs/rqb
+- Neon Documentation: https://neon.tech/docs
