@@ -14,7 +14,10 @@ export function AuthButtons() {
           </Button>
         </DialogTrigger>
         <DialogContent>
-          <SignIn />
+          <SignIn 
+            forceRedirectUrl="/dashboard"
+            signUpUrl="#"
+          />
         </DialogContent>
       </Dialog>
       <Dialog>
@@ -24,7 +27,10 @@ export function AuthButtons() {
           </Button>
         </DialogTrigger>
         <DialogContent>
-          <SignUp />
+          <SignUp 
+            forceRedirectUrl="/dashboard"
+            signInUrl="#"
+          />
         </DialogContent>
       </Dialog>
     </div>
