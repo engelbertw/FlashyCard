@@ -1,12 +1,24 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Card, CardHeader, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ChevronLeft, ChevronRight, RotateCcw, Shuffle, BookOpen, PenTool, CheckCircle2, XCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RotateCcw, Shuffle, BookOpen, PenTool, CheckCircle2, XCircle, Trophy, TrendingUp } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { normalizeCardText } from '@/lib/text-utils';
+import { saveStudySessionAction } from '@/actions/study-actions';
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 interface StudySessionProps {
   cards: Array<{
@@ -30,6 +42,11 @@ export function StudySession({ cards, deckId }: StudySessionProps) {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [score, setScore] = useState({ correct: 0, total: 0 });
   const [multipleChoiceOptions, setMultipleChoiceOptions] = useState<string[]>([]);
+  const [cardResults, setCardResults] = useState<Array<{ cardId: number; isCorrect: boolean }>>([]);
+  const [isSessionComplete, setIsSessionComplete] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [leaderboardRank, setLeaderboardRank] = useState<{rank: number | null, total: number, score: number | null} | null>(null);
+  const [showChallengeDialog, setShowChallengeDialog] = useState(false);
 
   const currentCard = studyCards[currentIndex];
   const progress = ((currentIndex + 1) / studyCards.length) * 100;
@@ -96,6 +113,12 @@ export function StudySession({ cards, deckId }: StudySessionProps) {
       correct: isAnswerCorrect ? prev.correct + 1 : prev.correct,
       total: prev.total + 1,
     }));
+    
+    // Track this result
+    setCardResults(prev => [
+      ...prev,
+      { cardId: currentCard.id, isCorrect: isAnswerCorrect }
+    ]);
   };
 
   const handleToggleMode = () => {
@@ -131,8 +154,35 @@ export function StudySession({ cards, deckId }: StudySessionProps) {
     setScore({ correct: 0, total: 0 });
   };
 
-  const handleFinish = () => {
-    router.push(`/decks/${deckId}`);
+  const handleFinish = async () => {
+    // Show completion screen first if in test mode
+    if (studyMode === 'test' && score.total > 0) {
+      setIsSessionComplete(true);
+      
+      // Save results in background
+      setIsSaving(true);
+      try {
+        const result = await saveStudySessionAction({
+          deckId,
+          mode: studyMode,
+          totalCards: score.total,
+          correctAnswers: score.correct,
+          cardResults,
+        });
+        
+        // Get leaderboard rank if available
+        if (result.success && result.data?.rank) {
+          setLeaderboardRank(result.data.rank);
+        }
+      } catch (error) {
+        console.error('Failed to save session:', error);
+      } finally {
+        setIsSaving(false);
+      }
+    } else {
+      // Flip mode or no cards answered - just go back
+      router.push(`/decks/${deckId}`);
+    }
   };
 
   const isLastCard = currentIndex === studyCards.length - 1;
@@ -187,6 +237,169 @@ export function StudySession({ cards, deckId }: StudySessionProps) {
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [currentIndex, isFlipped, studyCards.length, studyMode, userAnswer, isAnswerChecked, multipleChoiceOptions]);
+
+  // Show session complete screen
+  if (isSessionComplete) {
+    const percentage = score.total > 0 ? Math.round((score.correct / score.total) * 100) : 0;
+    const passed = percentage >= 70;
+    
+    return (
+      <div className="max-w-2xl mx-auto">
+        <Card className="mb-6">
+          <CardHeader className="text-center pb-4">
+            <div className="flex justify-center mb-4">
+              {passed ? (
+                <Trophy className="h-20 w-20 text-yellow-500" />
+              ) : (
+                <TrendingUp className="h-20 w-20 text-blue-500" />
+              )}
+            </div>
+            <CardTitle className="text-3xl mb-2">
+              {passed ? 'Great Job!' : 'Session Complete'}
+            </CardTitle>
+            <p className="text-muted-foreground">
+              {passed 
+                ? 'Excellent work! You\'ve mastered these cards.' 
+                : 'Keep practicing to improve your score!'}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Score Display */}
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="p-4 bg-muted rounded-lg">
+                <div className="text-3xl font-bold text-primary">{score.correct}</div>
+                <div className="text-sm text-muted-foreground">Correct</div>
+              </div>
+              <div className="p-4 bg-muted rounded-lg">
+                <div className="text-3xl font-bold text-destructive">
+                  {score.total - score.correct}
+                </div>
+                <div className="text-sm text-muted-foreground">Incorrect</div>
+              </div>
+              <div className="p-4 bg-muted rounded-lg">
+                <div className="text-3xl font-bold">{percentage}%</div>
+                <div className="text-sm text-muted-foreground">Score</div>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Your Performance</span>
+                <span className="font-medium">{percentage}%</span>
+              </div>
+              <div className="w-full bg-secondary rounded-full h-4">
+                <div
+                  className={`h-4 rounded-full transition-all duration-500 ${
+                    passed ? 'bg-green-500' : 'bg-blue-500'
+                  }`}
+                  style={{ width: `${percentage}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Status Message */}
+            <div className={`p-4 rounded-lg border ${
+              passed 
+                ? 'bg-green-500/10 border-green-500/30' 
+                : 'bg-blue-500/10 border-blue-500/30'
+            }`}>
+              <p className="text-center text-sm">
+                {isSaving ? (
+                  '💾 Saving your results...'
+                ) : (
+                  '✅ Results saved successfully!'
+                )}
+              </p>
+            </div>
+
+            {/* Leaderboard Rank */}
+            {leaderboardRank && leaderboardRank.rank && (
+              <div className="p-4 rounded-lg border bg-primary/5 border-primary/20">
+                <div className="flex items-center justify-center gap-3">
+                  <Trophy className="h-6 w-6 text-yellow-500" />
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground">Your Rank</p>
+                    <p className="text-2xl font-bold">
+                      #{leaderboardRank.rank} <span className="text-sm text-muted-foreground">of {leaderboardRank.total}</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setIsSessionComplete(false);
+                    setScore({ correct: 0, total: 0 });
+                    setCardResults([]);
+                    setCurrentIndex(0);
+                    setIsAnswerChecked(false);
+                    setIsCorrect(null);
+                    setLeaderboardRank(null);
+                  }}
+                >
+                  Study Again
+                </Button>
+                <Button
+                  size="lg"
+                  className="flex-1"
+                  onClick={() => router.push(`/decks/${deckId}`)}
+                >
+                  Back to Deck
+                </Button>
+              </div>
+              
+              {/* Challenge Button */}
+              <AlertDialog open={showChallengeDialog} onOpenChange={setShowChallengeDialog}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    className="w-full"
+                  >
+                    <TrendingUp className="mr-2 h-5 w-5" />
+                    Challenge a Friend
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Challenge Feature Coming Soon!</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div>
+                        <p className="mb-4">
+                          Soon you'll be able to challenge friends to beat your score of {percentage}%!
+                        </p>
+                        <p className="mb-2">This feature will allow you to:</p>
+                        <ul className="list-disc list-inside space-y-1">
+                          <li>Send challenges to other users</li>
+                          <li>Compare scores head-to-head</li>
+                          <li>Track challenge history</li>
+                          <li>See who's the ultimate champion!</li>
+                        </ul>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Close</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => router.push(`/decks/${deckId}`)}>
+                      View Leaderboard
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto">
