@@ -33,7 +33,7 @@ export function DeleteDeckDialog({ deckId, trigger }: DeleteDeckDialogProps) {
 
     if (result.success) {
       setOpen(false);
-      router.push('/dashboard');
+      router.push('/');
     } else {
       alert(result.error);
       setIsLoading(false);

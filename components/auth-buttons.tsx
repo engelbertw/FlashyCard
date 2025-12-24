@@ -13,8 +13,8 @@ export function AuthButtons() {
 
   useEffect(() => {
     if (isLoaded && isSignedIn) {
-      // User is signed in, redirect to dashboard
-      router.push("/dashboard");
+      // User is signed in, redirect to home page (which now shows decks)
+      router.push("/");
     }
   }, [isSignedIn, isLoaded, router]);
 

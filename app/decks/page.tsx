@@ -20,11 +20,6 @@ export default async function DecksPage() {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <Link href="/dashboard">
-            <Button variant="ghost" className="mb-4">
-              ← Back to Dashboard
-            </Button>
-          </Link>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-4xl font-bold mb-2">My Decks</h1>

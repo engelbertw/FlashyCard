@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { MobileNav } from "@/components/mobile-nav";
 import { PlanBadge } from "@/components/plan-badge";
 import Link from "next/link";
-import { LayoutDashboard, Library, Trophy, CreditCard } from "lucide-react";
+import { Library, Trophy, CreditCard } from "lucide-react";
 
 const poppins = Poppins({
   variable: "--font-poppins",
@@ -57,20 +57,13 @@ export default function RootLayout({
                   <nav className="hidden md:flex items-center gap-6">
                     <SignedIn>
                       <Link 
-                        href="/dashboard" 
+                        href="/" 
                         className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
                       >
-                        <LayoutDashboard className="h-4 w-4" />
-                        Dashboard
+                        <Library className="h-4 w-4" />
+                        My Decks
                       </Link>
                     </SignedIn>
-                    <Link 
-                      href="/decks" 
-                      className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      <Library className="h-4 w-4" />
-                      Decks
-                    </Link>
                     <Link 
                       href="/pricing" 
                       className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -94,13 +87,13 @@ export default function RootLayout({
                   <SignedOut>
                     <SignInButton 
                       mode="modal"
-                      forceRedirectUrl="/dashboard"
+                      forceRedirectUrl="/"
                     >
                       <Button>Sign In</Button>
                     </SignInButton>
                     <SignUpButton 
                       mode="modal"
-                      forceRedirectUrl="/dashboard"
+                      forceRedirectUrl="/"
                     >
                       <Button variant="outline">Sign Up</Button>
                     </SignUpButton>

@@ -67,8 +67,8 @@ export async function createDeckAction(input: CreateDeckInput) {
     }
     
     // Revalidate pages
+    revalidatePath('/');
     revalidatePath('/decks');
-    revalidatePath('/dashboard');
     revalidatePath(`/decks/${newDeck.id}`);
     
     return { success: true, data: newDeck };
@@ -110,8 +110,8 @@ export async function updateDeckAction(input: UpdateDeckInput) {
     }
     
     // Revalidate pages
+    revalidatePath('/');
     revalidatePath('/decks');
-    revalidatePath('/dashboard');
     revalidatePath(`/decks/${updated.id}`);
     
     return { success: true, data: updated };
@@ -147,8 +147,8 @@ export async function deleteDeckAction(input: DeleteDeckInput) {
     }
     
     // Revalidate pages
+    revalidatePath('/');
     revalidatePath('/decks');
-    revalidatePath('/dashboard');
     
     return { success: true, data: deleted };
   } catch (error) {

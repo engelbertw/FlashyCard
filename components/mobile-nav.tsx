@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, LayoutDashboard, Library, Trophy, X, CreditCard } from 'lucide-react';
+import { Menu, Library, Trophy, X, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -19,13 +19,8 @@ export function MobileNav() {
 
   const navItems = [
     {
-      href: '/dashboard',
-      label: 'Dashboard',
-      icon: LayoutDashboard,
-    },
-    {
-      href: '/decks',
-      label: 'Decks',
+      href: '/',
+      label: 'My Decks',
       icon: Library,
     },
     {

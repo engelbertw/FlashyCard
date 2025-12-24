@@ -41,9 +41,9 @@ export default async function DeckPage({ params }: PageProps) {
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
         {/* Navigation */}
-        <Link href="/dashboard">
+        <Link href="/">
           <Button variant="ghost" className="mb-4">
-            ← Back to Dashboard
+            ← Back to Decks
           </Button>
         </Link>
 
