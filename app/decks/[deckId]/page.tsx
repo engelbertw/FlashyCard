@@ -8,7 +8,7 @@ import { AddCardDialog } from "@/components/add-card-dialog";
 import { EditDeckDialog } from "@/components/edit-deck-dialog";
 import { DeleteDeckDialog } from "@/components/delete-deck-dialog";
 import { Flashcard } from "@/components/flashcard";
-import { Play, Settings, Trash } from "lucide-react";
+import { Play, Pencil, Trash } from "lucide-react";
 
 interface PageProps {
   params: Promise<{ deckId: string }>;
@@ -67,7 +67,7 @@ export default async function DeckPage({ params }: PageProps) {
                     deck={deck}
                     trigger={
                       <Button variant="outline" size="icon">
-                        <Settings className="h-4 w-4" />
+                        <Pencil className="h-4 w-4" />
                       </Button>
                     }
                   />
@@ -84,10 +84,12 @@ export default async function DeckPage({ params }: PageProps) {
             </CardHeader>
             {cards.length > 0 && (
               <CardContent>
-                <Button size="lg" className="w-full sm:w-auto">
-                  <Play className="mr-2 h-4 w-4" />
-                  Start Practice Session
-                </Button>
+                <Link href={`/decks/${deckIdNum}/study`}>
+                  <Button size="lg" className="w-full sm:w-auto">
+                    <Play className="mr-2 h-4 w-4" />
+                    Start Practice Session
+                  </Button>
+                </Link>
               </CardContent>
             )}
           </Card>

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createDeckAction } from '@/actions/deck-actions';
 import { generateCardsWithAI } from '@/actions/ai-actions';
+import { normalizeCardText } from '@/lib/text-utils';
 import {
   Dialog,
   DialogContent,
@@ -28,11 +29,58 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [cardCount, setCardCount] = useState(20);
+  const [cardCount, setCardCount] = useState(15); // Lowered from 20 to 15 for better success rate
   const [cardsText, setCardsText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  // Template suggestions for descriptions
+  const descriptionTemplates = [
+    { 
+      label: 'Dutch → English', 
+      value: 'common dutch words with english translations',
+      deckName: 'Dutch Vocabulary'
+    },
+    { 
+      label: 'Spanish → English', 
+      value: 'basic spanish vocabulary with english translations',
+      deckName: 'Spanish Basics'
+    },
+    { 
+      label: 'French → English', 
+      value: 'common french phrases with english translations',
+      deckName: 'French Phrases'
+    },
+    { 
+      label: 'German → English', 
+      value: 'basic german words with english translations',
+      deckName: 'German Basics'
+    },
+    { 
+      label: 'Capital Cities', 
+      value: 'european capital cities and their countries',
+      deckName: 'European Capitals'
+    },
+    { 
+      label: 'Math Terms', 
+      value: 'mathematical terms and their definitions',
+      deckName: 'Math Vocabulary'
+    },
+    { 
+      label: 'Science Terms', 
+      value: 'basic science vocabulary and definitions',
+      deckName: 'Science Basics'
+    },
+  ];
+
+  const handleTemplateClick = (template: typeof descriptionTemplates[0]) => {
+    setDescription(template.value);
+    if (!name) {
+      setName(template.deckName);
+    }
+  };
 
   const parseCards = (text: string): Array<{ front: string; back: string }> => {
     if (!text.trim()) return [];
@@ -58,7 +106,17 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
       }
       
       if (front && back) {
-        cards.push({ front, back });
+        // Normalize text: lowercase, remove strange characters
+        const normalizedFront = normalizeCardText(front);
+        const normalizedBack = normalizeCardText(back);
+        
+        // Only add if both sides have content after normalization
+        if (normalizedFront && normalizedBack) {
+          cards.push({ 
+            front: normalizedFront, 
+            back: normalizedBack 
+          });
+        }
       }
     }
     
@@ -68,6 +126,7 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
   const handleGenerateWithAI = async () => {
     setIsGenerating(true);
     setError(null);
+    setWarning(null);
 
     if (!description.trim()) {
       setError('Please enter a description to generate cards with AI');
@@ -78,9 +137,30 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
     const result = await generateCardsWithAI(description, cardCount);
 
     if (result.success && result.data) {
-      setCardsText(result.data);
+      // Convert parsed cards back to text format for the textarea
+      const cardsText = result.data.cards
+        .map((card: { front: string; back: string }) => `${card.front} | ${card.back}`)
+        .join('\n');
+      setCardsText(cardsText);
+      
+      // Show warning if the count doesn't match
+      if (result.data.warning) {
+        setWarning(result.data.warning);
+      } else if (result.data.count < cardCount) {
+        setWarning(`Generated ${result.data.count} cards instead of ${cardCount} requested`);
+      } else if (result.data.count === cardCount) {
+        setWarning(`✓ Successfully generated ${result.data.count} cards!`);
+      }
     } else {
-      setError(result.error || 'Failed to generate cards');
+      let errorMsg = result.error || 'Failed to generate cards';
+      
+      // If there's debug info, show a hint
+      if ((result as any).debug) {
+        errorMsg += '\n\n💡 Tip: Try a more specific topic like "common Dutch verbs" or "Spanish numbers 1-20"';
+        console.log('AI Debug Output:', (result as any).debug);
+      }
+      
+      setError(errorMsg);
     }
 
     setIsGenerating(false);
@@ -135,9 +215,10 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
       // Reset on close
       setName('');
       setDescription('');
-      setCardCount(20);
+      setCardCount(15); // Lowered from 20 to 15
       setCardsText('');
       setError(null);
+      setWarning(null);
     }
   };
 
@@ -172,14 +253,38 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
             <Label htmlFor="description">
               Description * <span className="text-xs text-muted-foreground">(used by AI to generate cards)</span>
             </Label>
+            
+            {/* Template Chips */}
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground font-medium">Quick Templates:</p>
+              <div className="flex flex-wrap gap-2">
+                {descriptionTemplates.map((template) => (
+                  <Button
+                    key={template.label}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => handleTemplateClick(template)}
+                    disabled={isLoading || isGenerating}
+                  >
+                    {template.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            
             <Textarea
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g., Typical food Dutch to English, Basic Spanish greetings, Capital cities of Europe, etc."
+              placeholder="e.g., italian food words with english translations, french verbs with conjugations, world capitals and countries"
               disabled={isLoading || isGenerating}
               rows={2}
             />
+            <p className="text-xs text-muted-foreground">
+              💡 <strong>Tip:</strong> Templates auto-fill the description and deck name. Use keywords like "with english translations" for best results.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -190,12 +295,12 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
               min={1}
               max={100}
               value={cardCount}
-              onChange={(e) => setCardCount(parseInt(e.target.value) || 20)}
+              onChange={(e) => setCardCount(parseInt(e.target.value) || 15)}
               disabled={isLoading || isGenerating}
-              placeholder="e.g., 20"
+              placeholder="e.g., 15"
             />
             <p className="text-xs text-muted-foreground">
-              ⚡ Gemma3 270M is a fast, lightweight model. Generate cards in seconds!
+              ⚡ Gemma3 270M is fast and lightweight. <strong>Recommended: 10-20 cards per generation.</strong> For more, generate multiple times.
             </p>
           </div>
 
@@ -215,7 +320,7 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
               ) : (
                 <>
                   <Cpu className="mr-2 h-4 w-4" />
-                  Generate {cardCount} Cards with Gemma3 (Local)
+                  Generate {cardCount} Card{cardCount !== 1 ? 's' : ''} with Gemma3
                 </>
               )}
             </Button>
@@ -272,6 +377,18 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
                   </p>
                 )}
               </div>
+            </div>
+          )}
+          
+          {warning && (
+            <div className={`text-sm p-3 rounded-md whitespace-pre-line ${
+              warning.includes('✓') 
+                ? 'bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20' 
+                : warning.includes('⚠️')
+                ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20'
+                : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20'
+            }`}>
+              {warning}
             </div>
           )}
           

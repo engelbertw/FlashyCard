@@ -16,6 +16,7 @@ import {
   deleteCard,
   getUserDeck,
 } from '@/db/queries/decks';
+import { normalizeCardText } from '@/lib/text-utils';
 
 /**
  * Create a new card in a deck
@@ -44,11 +45,23 @@ export async function createCardAction(input: CreateCardInput) {
       return { success: false, error: 'Deck not found or unauthorized' };
     }
     
+    // Normalize text (lowercase, remove strange characters)
+    const normalizedFront = normalizeCardText(validated.data.front);
+    const normalizedBack = normalizeCardText(validated.data.back);
+    
+    // Validate normalized text is not empty
+    if (!normalizedFront || !normalizedBack) {
+      return { 
+        success: false, 
+        error: 'Card text cannot be empty after normalization' 
+      };
+    }
+    
     // Create the card
     const newCard = await createCard(
       validated.data.deckId,
-      validated.data.front,
-      validated.data.back
+      normalizedFront,
+      normalizedBack
     );
     
     // Revalidate the deck page
@@ -82,10 +95,22 @@ export async function updateCardAction(input: UpdateCardInput) {
   }
   
   try {
+    // Normalize text (lowercase, remove strange characters)
+    const normalizedFront = normalizeCardText(validated.data.front);
+    const normalizedBack = normalizeCardText(validated.data.back);
+    
+    // Validate normalized text is not empty
+    if (!normalizedFront || !normalizedBack) {
+      return { 
+        success: false, 
+        error: 'Card text cannot be empty after normalization' 
+      };
+    }
+    
     // Update the card (ownership verification is done in the query helper)
     const updated = await updateCard(userId, validated.data.id, {
-      front: validated.data.front,
-      back: validated.data.back,
+      front: normalizedFront,
+      back: normalizedBack,
     });
     
     if (!updated) {
