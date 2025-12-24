@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import { decksTable, cardsTable } from '@/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 
 /**
  * Get all decks for a specific user
@@ -11,6 +11,28 @@ export async function getUserDecks(userId: string) {
     .from(decksTable)
     .where(eq(decksTable.userId, userId))
     .orderBy(desc(decksTable.createdAt));
+}
+
+/**
+ * Get recent decks for template suggestions
+ */
+export async function getRecentDecksForTemplates(userId: string, limit = 5) {
+  return await db
+    .select({
+      id: decksTable.id,
+      name: decksTable.name,
+      description: decksTable.description,
+      createdAt: decksTable.createdAt,
+    })
+    .from(decksTable)
+    .where(
+      and(
+        eq(decksTable.userId, userId),
+        sql`${decksTable.description} IS NOT NULL AND ${decksTable.description} != ''`
+      )
+    )
+    .orderBy(desc(decksTable.createdAt))
+    .limit(limit);
 }
 
 /**

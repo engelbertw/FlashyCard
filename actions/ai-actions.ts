@@ -26,8 +26,8 @@ export async function generateCardsWithAI(
   }
 
   try {
-    // Request 30% more cards than needed to account for filtering/duplicates
-    const requestCount = Math.ceil(cardCount * 1.3);
+    // Request 100% more cards (2x) to account for filtering/duplicates/meta-words
+    const requestCount = Math.ceil(cardCount * 2.0);
     
     // Build examples based on keywords in description
     const descLower = description.toLowerCase();
@@ -37,16 +37,36 @@ export async function generateCardsWithAI(
     // Check for specific language/topic keywords
     if (descLower.includes('dutch')) {
       exampleCards = [
-        'stroopwafel | syrup waffle',
-        'poffertjes | small pancakes', 
-        'bitterballen | fried meatballs',
-        'haring | herring',
-        'kroket | croquette',
+        'appel | apple',
         'kaas | cheese',
         'brood | bread',
         'melk | milk',
-        'drop | licorice',
-        'oliebollen | fried dough balls'
+        'water | water',
+        'huis | house',
+        'auto | car',
+        'boek | book',
+        'tafel | table',
+        'stoel | chair',
+        'deur | door',
+        'raam | window',
+        'kat | cat',
+        'hond | dog',
+        'fiets | bicycle',
+        'boom | tree',
+        'bloem | flower',
+        'kind | child',
+        'man | man',
+        'vrouw | woman',
+        'dag | day',
+        'nacht | night',
+        'zon | sun',
+        'maan | moon',
+        'blauw | blue',
+        'rood | red',
+        'groen | green',
+        'groot | big',
+        'klein | small',
+        'eten | food'
       ];
     } else if (descLower.includes('spanish')) {
       exampleCards = [
@@ -144,26 +164,34 @@ export async function generateCardsWithAI(
     
     // Detect if user wants translations
     const wantsTranslations = descLower.includes('translation') || descLower.includes('english');
-    const formatHint = wantsTranslations 
-      ? 'Format: native_word | english_translation'
-      : 'Format: term | definition';
+    const isDutchToEnglish = descLower.includes('dutch') && descLower.includes('english');
     
-    const prompt = `Create ${requestCount} flashcards about: ${description}
-
-${formatHint}
-
-Copy these ${exampleCards.length} examples EXACTLY:
+    let prompt;
+    
+    if (isDutchToEnglish) {
+      // Special prompt for Dutch to English translations - SIMPLE and example-focused
+      prompt = `Study these Dutch-English flashcard examples:
 ${exampleCards.join('\n')}
 
-CRITICAL:
-- Each line = TWO parts separated by |
-- NO numbers (1, 2, 3)
-- NO labels (term:, translation:)
-- NO explanations
-- lowercase only
-- ${requestCount} cards total
+Generate ${requestCount} more unique cards about: ${description}
 
-Generate now:`;
+Output ONLY the flashcards in format: dutch | english
+NO explanations, NO intro text, NO numbering:`;
+    } else if (wantsTranslations) {
+      prompt = `Study these vocabulary flashcard examples:
+${exampleCards.join('\n')}
+
+Generate ${requestCount} more unique cards about: ${description}
+
+Output ONLY the flashcards, NO intro text:`;
+    } else {
+      prompt = `Study these flashcard examples:
+${exampleCards.join('\n')}
+
+Generate ${requestCount} more unique cards about: ${description}
+
+Output ONLY the flashcards, NO intro text:`;
+    }
 
 
     // Call Ollama API running locally
@@ -184,12 +212,13 @@ Generate now:`;
         prompt: prompt,
         stream: false,
         options: {
-          temperature: 0.7, // Lower for more consistent formatting
-          num_predict: Math.max(8000, requestCount * 120), // Even higher - safety margin
-          top_k: 40,
-          top_p: 0.9,
-          repeat_penalty: 1.2, // Higher to avoid duplicate patterns
-          frequency_penalty: 0.3, // Reduce repetitive structures
+          temperature: 0.8, // Higher for more variety in responses
+          num_predict: Math.max(12000, requestCount * 250), // Even higher token limit
+          top_k: 60, // More options for diverse vocabulary
+          top_p: 0.95, // High for diverse output
+          repeat_penalty: 2.0, // MUCH higher to strongly prevent repetition
+          frequency_penalty: 0.8, // Higher to avoid repeating same words
+          presence_penalty: 0.6, // Higher to encourage new vocabulary
         },
       }),
       signal: controller.signal,
@@ -218,6 +247,8 @@ Generate now:`;
     if (parsedCards.length === 0) {
       console.log('Standard parsing failed, trying lenient parsing...');
       
+      const metaWords = ['woorden', 'woord', 'tekst', 'text', 'word', 'words', 'translation', 'vertaling', 'vertalingen'];
+      
       // Try splitting by any common separators and being very lenient
       const lines = generatedText.split('\n');
       for (const line of lines) {
@@ -228,10 +259,17 @@ Generate now:`;
         for (const sep of ['|', ':', '-', '=', '\t']) {
           if (cleaned.includes(sep)) {
             const idx = cleaned.indexOf(sep);
-            const front = cleaned.substring(0, idx).trim().replace(/^\d+[\.)]\s*/, '');
-            const back = cleaned.substring(idx + 1).trim();
+            let front = cleaned.substring(0, idx).trim().replace(/^\d+[\.)]\s*/, '');
+            let back = cleaned.substring(idx + 1).trim();
             
-            if (front && back && front.length > 0 && back.length > 0) {
+            // Remove parenthetical parts like "(apple)" or "(word)"
+            front = front.replace(/\s*\([^)]*\)/g, '').trim();
+            back = back.replace(/\s*\([^)]*\)/g, '').trim();
+            
+            // Filter out meta-words
+            const isMetaWord = metaWords.includes(front) || metaWords.includes(back);
+            
+            if (front && back && front.length > 0 && back.length > 0 && !isMetaWord && front !== back) {
               parsedCards.push({ front, back });
               break;
             }

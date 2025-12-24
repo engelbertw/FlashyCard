@@ -19,6 +19,8 @@ export function normalizeCardText(text: string): string {
     .replace(/[\x00-\x1F\x7F-\x9F]/g, '')
     // Remove zero-width characters
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // Remove parenthetical translations like "(apple)" or "(word)"
+    .replace(/\s*\([^)]*\)/g, '')
     // Remove quotes at start/end that might be left over
     .replace(/^["']+|["']+$/g, '')
     // Keep: letters (all languages), numbers, spaces, and common punctuation
@@ -79,6 +81,14 @@ export function parseAndNormalizeFlashcards(
       lowerLine.includes('flashcard') ||
       lowerLine.includes('here are') ||
       lowerLine.includes('here is') ||
+      lowerLine.startsWith('okay') ||
+      lowerLine.startsWith('sure') ||
+      lowerLine.startsWith('certainly') ||
+      lowerLine.startsWith('of course') ||
+      lowerLine.includes('vocabulary') ||
+      lowerLine.includes('each with') ||
+      lowerLine.includes('different dutch') ||
+      lowerLine.includes('different english') ||
       lowerLine === 'cards:' ||
       lowerLine === 'cards' ||
       lowerLine === 'output' ||
@@ -100,9 +110,13 @@ export function parseAndNormalizeFlashcards(
       lowerLine.startsWith('rules:') ||
       // Skip lines that are just numbers or punctuation
       /^[\d\s,]+$/.test(trimmedLine) ||
+      // Skip lines that are too long (likely explanatory text)
+      trimmedLine.length > 100 ||
       // Skip lines that look like instructions
       lowerLine.includes('must create') ||
-      lowerLine.includes('copy this')
+      lowerLine.includes('copy this') ||
+      lowerLine.includes('each line') ||
+      lowerLine.includes('unique cards')
     ) {
       continue;
     }
@@ -139,8 +153,27 @@ export function parseAndNormalizeFlashcards(
       const front = normalizeCardText(parts[0]);
       const back = normalizeCardText(parts[1]);
       
-      // Only add if both sides have content
-      if (front && back && front !== back) {
+      // Skip meta-words that shouldn't appear in actual flashcards
+      const metaWords = [
+        'woorden', 'woord', 'tekst', 'text', 'word', 'words',
+        'translation', 'vertaling', 'vertalingen', 'english', 'dutch',
+        'term', 'definition', 'front', 'back',
+        'leftside', 'rightside', 'example', 'format',
+        'native', 'language', 'taal'
+      ];
+      
+      const frontLower = front.toLowerCase().trim();
+      const backLower = back.toLowerCase().trim();
+      
+      // Check if front or back is ONLY a meta-word (exact match)
+      const isMetaWord = 
+        metaWords.includes(frontLower) || 
+        metaWords.includes(backLower) ||
+        // Also check if it starts with these words followed by punctuation
+        metaWords.some(word => frontLower === word || backLower === word);
+      
+      // Only add if both sides have content, are different, and not meta-words
+      if (front && back && front !== back && !isMetaWord) {
         cards.push({ front, back });
       }
     }
@@ -151,20 +184,40 @@ export function parseAndNormalizeFlashcards(
 
 /**
  * Remove duplicate cards (case-insensitive comparison)
+ * Also removes cards where the back side is repeated too many times (AI pattern bug)
  */
 export function removeDuplicateCards(
   cards: Array<{ front: string; back: string }>
 ): Array<{ front: string; back: string }> {
   const seen = new Set<string>();
+  const backCounts = new Map<string, number>();
   const unique: Array<{ front: string; back: string }> = [];
 
+  // First pass - count how many times each back appears
+  for (const card of cards) {
+    const backKey = card.back.toLowerCase();
+    backCounts.set(backKey, (backCounts.get(backKey) || 0) + 1);
+  }
+
+  // Second pass - only keep cards where back appears <= 2 times
   for (const card of cards) {
     const key = `${card.front.toLowerCase()}|${card.back.toLowerCase()}`;
+    const backKey = card.back.toLowerCase();
+    const backCount = backCounts.get(backKey) || 0;
     
-    if (!seen.has(key)) {
-      seen.add(key);
-      unique.push(card);
+    // Skip if we've seen this exact card before
+    if (seen.has(key)) {
+      continue;
     }
+    
+    // Skip if the back side appears more than 2 times (AI repetition bug)
+    if (backCount > 2) {
+      console.log(`Filtering out card with repeated back: ${card.back} (appears ${backCount} times)`);
+      continue;
+    }
+    
+    seen.add(key);
+    unique.push(card);
   }
 
   return unique;

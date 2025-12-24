@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createDeckAction } from '@/actions/deck-actions';
 import { generateCardsWithAI } from '@/actions/ai-actions';
+import { getRecentDeckTemplates, generateSmartTemplates } from '@/actions/template-actions';
 import { normalizeCardText } from '@/lib/text-utils';
 import {
   Dialog,
@@ -29,7 +30,7 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [cardCount, setCardCount] = useState(15); // Lowered from 20 to 15 for better success rate
+  const [cardCount, setCardCount] = useState(10); // Optimized for Gemma3 270M model
   const [cardsText, setCardsText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -39,6 +40,9 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
   const [selectedTopic, setSelectedTopic] = useState<string>('');
   const [customTopic, setCustomTopic] = useState<string>('');
   const [difficultyLevel, setDifficultyLevel] = useState<'beginner' | 'intermediate' | 'expert'>('beginner');
+  const [recentTemplates, setRecentTemplates] = useState<any[]>([]);
+  const [smartTemplates, setSmartTemplates] = useState<any[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
 
   // Template suggestions with topics
   const descriptionTemplates = [
@@ -100,28 +104,78 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
     },
   ];
 
-  const handleTemplateClick = (template: typeof descriptionTemplates[0]) => {
+  // Load user's recent and smart templates when dialog opens
+  useEffect(() => {
+    if (open) {
+      loadUserTemplates();
+    }
+  }, [open]);
+
+  const loadUserTemplates = async () => {
+    setLoadingTemplates(true);
+    
+    try {
+      const [recentResult, smartResult] = await Promise.all([
+        getRecentDeckTemplates(),
+        generateSmartTemplates(),
+      ]);
+
+      if (recentResult.success && recentResult.data) {
+        setRecentTemplates(recentResult.data);
+      }
+
+      if (smartResult.success && smartResult.data) {
+        setSmartTemplates(smartResult.data);
+      }
+    } catch (error) {
+      console.error('Error loading templates:', error);
+    }
+    
+    setLoadingTemplates(false);
+  };
+
+  const handleTemplateClick = (template: any) => {
     setSelectedTemplate(template.id);
     setSelectedTopic(''); // Reset topic selection
     setCustomTopic(''); // Reset custom topic
     
     // Build the initial description
     const levelPrefix = difficultyLevel === 'beginner' ? 'basic' : difficultyLevel === 'intermediate' ? 'common' : 'advanced';
-    setDescription(`${levelPrefix} ${template.baseDescription}`);
+    
+    // For recent templates, use the exact description
+    if (template.isRecent) {
+      setDescription(template.baseDescription);
+    } else {
+      setDescription(`${levelPrefix} ${template.baseDescription}`);
+    }
     
     if (!name) {
       setName(template.deckName);
     }
   };
 
+  const findTemplate = (templateId: string | null) => {
+    if (!templateId) return null;
+    return (
+      descriptionTemplates.find(t => t.id === templateId) ||
+      smartTemplates.find(t => t.id === templateId) ||
+      recentTemplates.find(t => t.id === templateId)
+    );
+  };
+
   const handleTopicSelect = (topic: string) => {
     setSelectedTopic(topic);
     setCustomTopic(''); // Clear custom topic if selecting from list
     
-    const template = descriptionTemplates.find(t => t.id === selectedTemplate);
+    const template = findTemplate(selectedTemplate);
     if (template) {
-      const levelPrefix = difficultyLevel === 'beginner' ? 'basic' : difficultyLevel === 'intermediate' ? 'common' : 'advanced';
-      setDescription(`${levelPrefix} ${template.baseDescription} about ${topic}`);
+      if (template.isRecent) {
+        // For recent templates, append topic to existing description
+        setDescription(`${template.baseDescription} about ${topic}`);
+      } else {
+        const levelPrefix = difficultyLevel === 'beginner' ? 'basic' : difficultyLevel === 'intermediate' ? 'common' : 'advanced';
+        setDescription(`${levelPrefix} ${template.baseDescription} about ${topic}`);
+      }
     }
   };
 
@@ -129,21 +183,29 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
     setCustomTopic(topic);
     setSelectedTopic(''); // Clear predefined topic if entering custom
     
-    const template = descriptionTemplates.find(t => t.id === selectedTemplate);
+    const template = findTemplate(selectedTemplate);
     if (template && topic.trim()) {
-      const levelPrefix = difficultyLevel === 'beginner' ? 'basic' : difficultyLevel === 'intermediate' ? 'common' : 'advanced';
-      setDescription(`${levelPrefix} ${template.baseDescription} about ${topic.trim()}`);
+      if (template.isRecent) {
+        setDescription(`${template.baseDescription} about ${topic.trim()}`);
+      } else {
+        const levelPrefix = difficultyLevel === 'beginner' ? 'basic' : difficultyLevel === 'intermediate' ? 'common' : 'advanced';
+        setDescription(`${levelPrefix} ${template.baseDescription} about ${topic.trim()}`);
+      }
     } else if (template) {
-      const levelPrefix = difficultyLevel === 'beginner' ? 'basic' : difficultyLevel === 'intermediate' ? 'common' : 'advanced';
-      setDescription(`${levelPrefix} ${template.baseDescription}`);
+      if (template.isRecent) {
+        setDescription(template.baseDescription);
+      } else {
+        const levelPrefix = difficultyLevel === 'beginner' ? 'basic' : difficultyLevel === 'intermediate' ? 'common' : 'advanced';
+        setDescription(`${levelPrefix} ${template.baseDescription}`);
+      }
     }
   };
 
   const handleDifficultyChange = (level: 'beginner' | 'intermediate' | 'expert') => {
     setDifficultyLevel(level);
     
-    const template = descriptionTemplates.find(t => t.id === selectedTemplate);
-    if (template) {
+    const template = findTemplate(selectedTemplate);
+    if (template && !template.isRecent) {
       const levelPrefix = level === 'beginner' ? 'basic' : level === 'intermediate' ? 'common' : 'advanced';
       const topicPart = selectedTopic ? ` about ${selectedTopic}` : customTopic.trim() ? ` about ${customTopic.trim()}` : '';
       setDescription(`${levelPrefix} ${template.baseDescription}${topicPart}`);
@@ -214,10 +276,23 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
       // Show warning if the count doesn't match
       if (result.data.warning) {
         setWarning(result.data.warning);
+      } else if (result.data.count < cardCount * 0.5) {
+        // Less than 50% generated - suggest smaller batch
+        setWarning(`⚠️ Only generated ${result.data.count} out of ${cardCount} requested cards.
+
+💡 Suggestions to get more cards:
+• Try ${Math.ceil(cardCount / 2)} cards instead of ${cardCount}
+• Be more specific: "${description} - common words"
+• Generate multiple smaller batches
+• The Gemma3 270M model is small - larger models work better for big requests
+
+You can still create the deck with these ${result.data.count} cards, or try generating again.`);
       } else if (result.data.count < cardCount) {
-        setWarning(`Generated ${result.data.count} cards instead of ${cardCount} requested`);
+        setWarning(`⚠️ Generated ${result.data.count} out of ${cardCount} requested cards. This is normal for the small Gemma3 model. You can generate again to add more!`);
       } else if (result.data.count === cardCount) {
         setWarning(`✓ Successfully generated ${result.data.count} cards!`);
+      } else {
+        setWarning(`✓ Generated ${result.data.count} cards (requested ${cardCount})!`);
       }
     } else {
       let errorMsg = result.error || 'Failed to generate cards';
@@ -283,7 +358,7 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
       // Reset on close
       setName('');
       setDescription('');
-      setCardCount(15);
+      setCardCount(10);
       setCardsText('');
       setError(null);
       setWarning(null);
@@ -291,6 +366,8 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
       setSelectedTopic('');
       setCustomTopic('');
       setDifficultyLevel('beginner');
+      setRecentTemplates([]);
+      setSmartTemplates([]);
     }
   };
 
@@ -326,9 +403,65 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
               Description * <span className="text-xs text-muted-foreground">(used by AI to generate cards)</span>
             </Label>
             
-            {/* Template Chips */}
+            {/* Loading Templates Indicator */}
+            {loadingTemplates && (
+              <div className="text-xs text-muted-foreground flex items-center gap-2 py-2">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading your personalized templates...
+              </div>
+            )}
+
+            {/* Recent Deck Templates */}
+            {recentTemplates.length > 0 && (
+              <div className="space-y-1 border rounded-lg p-3 bg-primary/5">
+                <p className="text-xs text-muted-foreground font-medium flex items-center gap-2">
+                  <span>⭐</span> Your Recent Decks:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {recentTemplates.map((template) => (
+                    <Button
+                      key={template.id}
+                      type="button"
+                      variant={selectedTemplate === template.id ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => handleTemplateClick(template)}
+                      disabled={isLoading || isGenerating}
+                    >
+                      {template.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Smart AI Suggestions */}
+            {smartTemplates.length > 0 && (
+              <div className="space-y-1 border rounded-lg p-3 bg-green-500/5">
+                <p className="text-xs text-muted-foreground font-medium flex items-center gap-2">
+                  <span>🤖</span> Smart Suggestions (based on your history):
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {smartTemplates.map((template) => (
+                    <Button
+                      key={template.id}
+                      type="button"
+                      variant={selectedTemplate === template.id ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => handleTemplateClick(template)}
+                      disabled={isLoading || isGenerating}
+                    >
+                      {template.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Standard Quick Templates */}
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground font-medium">Quick Templates:</p>
+              <p className="text-xs text-muted-foreground font-medium">Standard Templates:</p>
               <div className="flex flex-wrap gap-2">
                 {descriptionTemplates.map((template) => (
                   <Button
@@ -367,35 +500,47 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
             </div>
 
             {/* Topic Selector (shown when a template is selected) */}
-            {selectedTemplate && (
-              <div className="space-y-1 border rounded-lg p-3 bg-muted/30">
-                <p className="text-xs text-muted-foreground font-medium">Select or Add a Topic:</p>
-                <div className="flex flex-wrap gap-2">
-                  {descriptionTemplates.find(t => t.id === selectedTemplate)?.topics.map((topic) => (
-                    <Button
-                      key={topic}
-                      type="button"
-                      variant={selectedTopic === topic ? "default" : "outline"}
-                      size="sm"
-                      className="h-7 text-xs"
-                      onClick={() => handleTopicSelect(topic)}
-                      disabled={isLoading || isGenerating}
-                    >
-                      {topic}
-                    </Button>
-                  ))}
-                </div>
-                <div className="mt-2">
-                  <Input
-                    value={customTopic}
-                    onChange={(e) => handleCustomTopicChange(e.target.value)}
-                    placeholder="Or type your own topic..."
-                    disabled={isLoading || isGenerating}
-                    className="h-8 text-sm"
-                  />
-                </div>
-              </div>
-            )}
+            {selectedTemplate && (() => {
+              // Find the template in all sources
+              const template = 
+                descriptionTemplates.find(t => t.id === selectedTemplate) ||
+                smartTemplates.find(t => t.id === selectedTemplate) ||
+                recentTemplates.find(t => t.id === selectedTemplate);
+              
+              // Only show topic selector if template has topics (not for recent decks)
+              if (template && template.topics && template.topics.length > 0) {
+                return (
+                  <div className="space-y-1 border rounded-lg p-3 bg-muted/30">
+                    <p className="text-xs text-muted-foreground font-medium">Select or Add a Topic:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {template.topics.map((topic: string) => (
+                        <Button
+                          key={topic}
+                          type="button"
+                          variant={selectedTopic === topic ? "default" : "outline"}
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => handleTopicSelect(topic)}
+                          disabled={isLoading || isGenerating}
+                        >
+                          {topic}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="mt-2">
+                      <Input
+                        value={customTopic}
+                        onChange={(e) => handleCustomTopicChange(e.target.value)}
+                        placeholder="Or type your own topic..."
+                        disabled={isLoading || isGenerating}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             
             <Textarea
               id="description"
@@ -418,12 +563,12 @@ export function CreateDeckDialog({ trigger, redirectAfterCreate = false }: Creat
               min={1}
               max={100}
               value={cardCount}
-              onChange={(e) => setCardCount(parseInt(e.target.value) || 15)}
+              onChange={(e) => setCardCount(parseInt(e.target.value) || 10)}
               disabled={isLoading || isGenerating}
-              placeholder="e.g., 15"
+              placeholder="e.g., 10"
             />
             <p className="text-xs text-muted-foreground">
-              ⚡ Gemma3 270M is fast and lightweight. <strong>Recommended: 10-20 cards per generation.</strong> For more, generate multiple times.
+              ⚡ <strong>Best results: 5-10 cards per generation.</strong> The small Gemma3 270M model works better with smaller batches. Generate multiple times for larger decks.
             </p>
           </div>
 
