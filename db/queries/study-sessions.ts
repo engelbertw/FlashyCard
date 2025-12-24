@@ -176,6 +176,64 @@ export async function getUserRankForDeck(userId: string, deckId: number) {
 }
 
 /**
+ * Get global leaderboard across all decks
+ */
+export async function getGlobalLeaderboard(limit = 10) {
+  const leaderboard = await db
+    .select({
+      userId: studySessionsTable.userId,
+      totalSessions: sql<number>`COUNT(*)`,
+      totalCards: sql<number>`SUM(${studySessionsTable.totalCards})`,
+      totalCorrect: sql<number>`SUM(${studySessionsTable.correctAnswers})`,
+      averageScore: sql<number>`AVG((${studySessionsTable.correctAnswers} * 100.0) / NULLIF(${studySessionsTable.totalCards}, 0))`,
+      lastStudied: sql<Date>`MAX(${studySessionsTable.completedAt})`,
+    })
+    .from(studySessionsTable)
+    .where(eq(studySessionsTable.mode, 'test'))
+    .groupBy(studySessionsTable.userId)
+    .orderBy(desc(sql`AVG((${studySessionsTable.correctAnswers} * 100.0) / NULLIF(${studySessionsTable.totalCards}, 0))`))
+    .limit(limit);
+  
+  return leaderboard;
+}
+
+/**
+ * Get leaderboards for all decks with activity
+ */
+export async function getAllDecksLeaderboards(limit = 5) {
+  // Get all decks that have study sessions
+  const decksWithSessions = await db
+    .select({
+      deckId: studySessionsTable.deckId,
+      deckName: decksTable.name,
+      totalSessions: sql<number>`COUNT(*)`,
+      uniqueUsers: sql<number>`COUNT(DISTINCT ${studySessionsTable.userId})`,
+    })
+    .from(studySessionsTable)
+    .innerJoin(decksTable, eq(studySessionsTable.deckId, decksTable.id))
+    .where(eq(studySessionsTable.mode, 'test'))
+    .groupBy(studySessionsTable.deckId, decksTable.name)
+    .orderBy(desc(sql<number>`COUNT(*)`))
+    .limit(10);
+
+  // For each deck, get top performers
+  const leaderboards = await Promise.all(
+    decksWithSessions.map(async (deck) => {
+      const topScores = await getDeckLeaderboard(deck.deckId, limit);
+      return {
+        deckId: deck.deckId,
+        deckName: deck.deckName,
+        totalSessions: deck.totalSessions,
+        uniqueUsers: deck.uniqueUsers,
+        topScores,
+      };
+    })
+  );
+
+  return leaderboards;
+}
+
+/**
  * Create a new challenge
  */
 export async function createChallenge(

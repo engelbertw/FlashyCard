@@ -1,12 +1,13 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { getUserDecks } from "@/db/queries/decks";
-import { getUserStudySessions } from "@/db/queries/study-sessions";
+import { getUserStudySessions, getGlobalLeaderboard } from "@/db/queries/study-sessions";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { CreateDeckDialog } from "@/components/create-deck-dialog";
-import { Trophy, TrendingUp, Calendar, Target, BarChart3 } from "lucide-react";
+import { Trophy, TrendingUp, Calendar, Target, BarChart3, Crown, Medal } from "lucide-react";
+import { clerkClient } from "@clerk/nextjs/server";
 
 export default async function Dashboard() {
   const { userId } = await auth();
@@ -15,8 +16,11 @@ export default async function Dashboard() {
     redirect("/");
   }
 
-  const decks = await getUserDecks(userId);
-  const recentSessions = await getUserStudySessions(userId, 5);
+  const [decks, recentSessions, globalLeaderboard] = await Promise.all([
+    getUserDecks(userId),
+    getUserStudySessions(userId, 5),
+    getGlobalLeaderboard(5),
+  ]);
 
   // Calculate overall statistics
   const totalSessions = recentSessions.length;
@@ -24,6 +28,27 @@ export default async function Dashboard() {
     ? Math.round(recentSessions.reduce((sum, s) => sum + (s.correctAnswers / s.totalCards * 100), 0) / totalSessions)
     : 0;
   const totalCardsStudied = recentSessions.reduce((sum, s) => sum + s.totalCards, 0);
+
+  // Fetch user details for leaderboard
+  const leaderboardUserIds = globalLeaderboard.map(entry => entry.userId);
+  const leaderboardUsers = await Promise.all(
+    leaderboardUserIds.map(async (id) => {
+      try {
+        const user = await (await clerkClient()).users.getUser(id);
+        return {
+          id,
+          name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Anonymous',
+        };
+      } catch (error) {
+        return {
+          id,
+          name: 'Unknown User',
+        };
+      }
+    })
+  );
+
+  const userMap = new Map(leaderboardUsers.map(u => [u.id, u]));
 
   return (
     <div className="min-h-screen bg-background">
@@ -94,6 +119,78 @@ export default async function Dashboard() {
               </CardContent>
             </Card>
           </div>
+        )}
+
+        {/* Global Leaderboard */}
+        {globalLeaderboard.length > 0 && (
+          <Card className="mb-8">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-2xl flex items-center gap-2">
+                    <Crown className="h-6 w-6 text-yellow-500" />
+                    Top Performers
+                  </CardTitle>
+                  <CardDescription>See how others are doing</CardDescription>
+                </div>
+                <Button asChild variant="outline">
+                  <Link href="/leaderboards">View All</Link>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {globalLeaderboard.map((entry, index) => {
+                  const user = userMap.get(entry.userId);
+                  const isCurrentUser = entry.userId === userId;
+                  const rank = index + 1;
+                  
+                  return (
+                    <div 
+                      key={entry.userId}
+                      className={`flex items-center gap-4 p-3 rounded-lg border ${
+                        isCurrentUser ? 'bg-primary/10 border-primary' : 'bg-muted/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-center w-8">
+                        {rank === 1 && <Crown className="h-6 w-6 text-yellow-500" />}
+                        {rank === 2 && <Medal className="h-6 w-6 text-gray-400" />}
+                        {rank === 3 && <Medal className="h-6 w-6 text-orange-600" />}
+                        {rank > 3 && (
+                          <span className="text-xl font-bold text-muted-foreground">
+                            {rank}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex-1">
+                        <div className="font-semibold flex items-center gap-2">
+                          {user?.name || 'Unknown User'}
+                          {isCurrentUser && (
+                            <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded">
+                              You
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {entry.totalSessions} sessions • {entry.totalCards} cards
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-xl font-bold">
+                          {Math.round(entry.averageScore)}%
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          avg
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Recent Study Sessions */}
