@@ -13,7 +13,7 @@ import { ClerkProviderWrapper } from "@/components/clerk-provider-wrapper";
 import { Button } from "@/components/ui/button";
 import { MobileNav } from "@/components/mobile-nav";
 import Link from "next/link";
-import { LayoutDashboard, Library, Trophy } from "lucide-react";
+import { LayoutDashboard, Library, Trophy, CreditCard } from "lucide-react";
 
 const poppins = Poppins({
   variable: "--font-poppins",
@@ -53,8 +53,8 @@ export default function RootLayout({
                     FlashyCards
                   </Link>
                   
-                  <SignedIn>
-                    <nav className="hidden md:flex items-center gap-6">
+                  <nav className="hidden md:flex items-center gap-6">
+                    <SignedIn>
                       <Link 
                         href="/dashboard" 
                         className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -62,13 +62,22 @@ export default function RootLayout({
                         <LayoutDashboard className="h-4 w-4" />
                         Dashboard
                       </Link>
-                      <Link 
-                        href="/decks" 
-                        className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <Library className="h-4 w-4" />
-                        Decks
-                      </Link>
+                    </SignedIn>
+                    <Link 
+                      href="/decks" 
+                      className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Library className="h-4 w-4" />
+                      Decks
+                    </Link>
+                    <Link 
+                      href="/pricing" 
+                      className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <CreditCard className="h-4 w-4" />
+                      Pricing
+                    </Link>
+                    <SignedIn>
                       <Link 
                         href="/leaderboards" 
                         className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -76,8 +85,8 @@ export default function RootLayout({
                         <Trophy className="h-4 w-4" />
                         Leaderboards
                       </Link>
-                    </nav>
-                  </SignedIn>
+                    </SignedIn>
+                  </nav>
                 </div>
                 
                 <div className="flex items-center gap-4">

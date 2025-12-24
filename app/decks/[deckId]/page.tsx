@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { AddCardDialog } from "@/components/add-card-dialog";
+import { BulkImportCardsDialog } from "@/components/bulk-import-cards-dialog";
 import { EditDeckDialog } from "@/components/edit-deck-dialog";
 import { DeleteDeckDialog } from "@/components/delete-deck-dialog";
 import { Flashcard } from "@/components/flashcard";
@@ -99,7 +100,10 @@ export default async function DeckPage({ params }: PageProps) {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-semibold">Cards</h2>
-            <AddCardDialog deckId={deckIdNum} />
+            <div className="flex gap-2">
+              <BulkImportCardsDialog deckId={deckIdNum} />
+              <AddCardDialog deckId={deckIdNum} />
+            </div>
           </div>
 
           {cards.length === 0 ? (
