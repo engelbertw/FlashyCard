@@ -6,16 +6,22 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { CreateDeckDialog } from "@/components/create-deck-dialog";
-import { Trophy, TrendingUp, Calendar, Target, BarChart3, Crown, Medal } from "lucide-react";
+import { Trophy, TrendingUp, Calendar, Target, BarChart3, Crown, Medal, AlertCircle } from "lucide-react";
 import { clerkClient } from "@clerk/nextjs/server";
 
 export default async function Dashboard() {
-  const { userId } = await auth();
+  const { userId, has } = await auth();
 
   if (!userId) {
     redirect("/");
   }
 
+  // Check user's plan features first (these are fast and cached by Clerk)
+  // Note: After subscription, there may be a brief delay (1-3 seconds) for Clerk to update billing status
+  const hasUnlimitedDecks = has({ feature: 'unlimited_decks' });
+  const hasAIGeneration = has({ feature: 'ai_flashcard_generation' });
+
+  // Fetch data in parallel
   const [decks, recentSessions, globalLeaderboard] = await Promise.all([
     getUserDecks(userId),
     getUserStudySessions(userId, 5),
@@ -29,23 +35,33 @@ export default async function Dashboard() {
     : 0;
   const totalCardsStudied = recentSessions.reduce((sum, s) => sum + s.totalCards, 0);
 
-  // Fetch user details for leaderboard
+  // Fetch user details for leaderboard with timeout and error handling
   const leaderboardUserIds = globalLeaderboard.map(entry => entry.userId);
+  
+  // Create a helper function to fetch user with timeout
+  const fetchUserWithTimeout = async (id: string, timeoutMs: number = 2000) => {
+    try {
+      const timeoutPromise = new Promise<{ id: string; name: string }>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout')), timeoutMs)
+      );
+      
+      const userPromise = (await clerkClient()).users.getUser(id).then(user => ({
+        id,
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Anonymous',
+      }));
+      
+      return await Promise.race([userPromise, timeoutPromise]);
+    } catch (error) {
+      return {
+        id,
+        name: 'Unknown User',
+      };
+    }
+  };
+
+  // Fetch users in parallel with timeout protection
   const leaderboardUsers = await Promise.all(
-    leaderboardUserIds.map(async (id) => {
-      try {
-        const user = await (await clerkClient()).users.getUser(id);
-        return {
-          id,
-          name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Anonymous',
-        };
-      } catch (error) {
-        return {
-          id,
-          name: 'Unknown User',
-        };
-      }
-    })
+    leaderboardUserIds.map(id => fetchUserWithTimeout(id, 2000))
   );
 
   const userMap = new Map(leaderboardUsers.map(u => [u.id, u]));
@@ -244,6 +260,30 @@ export default async function Dashboard() {
           </Card>
         )}
 
+        {/* Plan Limits Warning */}
+        {(!hasUnlimitedDecks || !hasAIGeneration) && (
+          <Card className="mb-8 border-yellow-500/50 bg-yellow-500/10">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-yellow-500" />
+                Free Plan Limits
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {!hasUnlimitedDecks && (
+                <div>
+                  <strong>Deck Limit:</strong> You have {decks.length}/3 decks. {decks.length >= 3 && 'You\'ve reached the limit!'}
+                </div>
+              )}
+              {!hasAIGeneration && (
+                <div>
+                  <strong>AI Generation:</strong> Limited to 10 cards per generation. Upgrade to premium for unlimited AI generation.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Quick Actions */}
         <Card className="mb-8">
           <CardHeader>
@@ -255,9 +295,22 @@ export default async function Dashboard() {
               <Link href="/decks">View All Decks</Link>
             </Button>
             <CreateDeckDialog
-              trigger={<Button size="lg" variant="outline">Create New Deck</Button>}
+              trigger={
+                <Button 
+                  size="lg" 
+                  variant="outline"
+                  disabled={!hasUnlimitedDecks && decks.length >= 3}
+                >
+                  Create New Deck
+                </Button>
+              }
               redirectAfterCreate={true}
             />
+            {!hasUnlimitedDecks && decks.length >= 3 && (
+              <p className="text-sm text-muted-foreground mt-2">
+                Deck limit reached. Upgrade to premium for unlimited decks.
+              </p>
+            )}
           </CardContent>
         </Card>
 

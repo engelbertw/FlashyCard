@@ -12,6 +12,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ClerkProviderWrapper } from "@/components/clerk-provider-wrapper";
 import { Button } from "@/components/ui/button";
 import { MobileNav } from "@/components/mobile-nav";
+import { PlanBadge } from "@/components/plan-badge";
 import Link from "next/link";
 import { LayoutDashboard, Library, Trophy, CreditCard } from "lucide-react";
 
@@ -105,7 +106,10 @@ export default function RootLayout({
                     </SignUpButton>
                   </SignedOut>
                   <SignedIn>
-                    <UserButton afterSignOutUrl="/" />
+                    <div className="flex items-center gap-3">
+                      <PlanBadge />
+                      <UserButton afterSignOutUrl="/" />
+                    </div>
                   </SignedIn>
                 </div>
               </div>

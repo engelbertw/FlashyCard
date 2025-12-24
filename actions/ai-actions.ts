@@ -142,7 +142,7 @@ export async function generateCardsWithCptainAI(
   cardCount: number = 20
 ) {
   // Authenticate
-  const { userId } = await auth();
+  const { userId, has } = await auth();
   if (!userId) {
     return { success: false, error: 'Unauthorized' };
   }
@@ -150,6 +150,19 @@ export async function generateCardsWithCptainAI(
   // Validate inputs
   if (!description || description.trim().length < 3) {
     return { success: false, error: 'Description must be at least 3 characters' };
+  }
+
+  // Check AI generation limit for free users
+  const hasAIGeneration = has({ feature: 'ai_flashcard_generation' });
+  
+  if (!hasAIGeneration) {
+    // Free users are limited to 10 cards per AI generation
+    if (cardCount > 10) {
+      return {
+        success: false,
+        error: 'Free users can generate up to 10 cards at a time with AI. Upgrade to premium for unlimited AI generation.',
+      };
+    }
   }
 
   if (cardCount < 1 || cardCount > 100) {

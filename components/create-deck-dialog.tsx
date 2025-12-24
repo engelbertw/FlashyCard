@@ -19,7 +19,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import Link from 'next/link';
 
 interface CreateDeckDialogProps {
   trigger?: React.ReactNode;
@@ -577,12 +578,22 @@ You now have ${totalCardsAfter} total cards. You can generate more to add to the
               min={1}
               max={100}
               value={cardCount}
-              onChange={(e) => setCardCount(parseInt(e.target.value) || 10)}
+              onChange={(e) => {
+                const value = parseInt(e.target.value) || 1;
+                const clampedValue = Math.min(Math.max(1, value), 100);
+                setCardCount(clampedValue);
+              }}
               disabled={isLoading || isGenerating}
               placeholder="e.g., 10"
             />
+            <div className="flex items-start gap-2 p-2 rounded-md bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 dark:text-yellow-400">
+              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <p className="text-xs">
+                <strong>Free Plan Limit:</strong> Free users can generate up to 10 cards at a time with AI. Premium users can generate up to 100 cards per batch. The server will enforce this limit.
+              </p>
+            </div>
             <p className="text-xs text-muted-foreground">
-              ☁️ Cptain AI (Sovereign Cloud) can handle larger batches (up to 100 cards) with better quality. Privacy and secure by design.
+              ☁️ Cptain AI (Sovereign Cloud) can handle larger batches with better quality. Privacy and secure by design.
             </p>
           </div>
 
@@ -686,7 +697,19 @@ You now have ${totalCardsAfter} total cards. You can generate more to add to the
           )}
           
           {error && (
-            <p className="text-sm text-destructive">{error}</p>
+            <div className="space-y-2">
+              <p className="text-sm text-destructive">{error}</p>
+              {(typeof error === 'string' && (
+                error.includes('Deck limit reached') || 
+                error.includes('can generate up to 10 cards')
+              )) && (
+                <Button asChild variant="default" size="sm" className="w-full">
+                  <Link href="/pricing">
+                    Upgrade to Premium
+                  </Link>
+                </Button>
+              )}
+            </div>
           )}
           
           <div className="flex justify-end gap-2 pt-2">

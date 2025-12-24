@@ -16,6 +16,7 @@ import {
   updateDeck,
   deleteDeck,
   createCards,
+  getUserDecks,
 } from '@/db/queries/decks';
 
 /**
@@ -33,9 +34,23 @@ export async function createDeckAction(input: CreateDeckInput) {
   }
   
   // Authenticate
-  const { userId } = await auth();
+  const { userId, has } = await auth();
   if (!userId) {
     return { success: false, error: 'Unauthorized' };
+  }
+  
+  // Check deck limit for free users
+  const hasUnlimitedDecks = has({ feature: 'unlimited_decks' });
+  
+  if (!hasUnlimitedDecks) {
+    // Free users have 3_deck_limit feature
+    const userDecks = await getUserDecks(userId);
+    if (userDecks.length >= 3) {
+      return {
+        success: false,
+        error: 'Deck limit reached. You can create up to 3 decks on the free plan. Upgrade to premium for unlimited decks.',
+      };
+    }
   }
   
   try {
