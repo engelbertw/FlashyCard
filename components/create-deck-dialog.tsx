@@ -21,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Sparkles, Loader2, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
+import { Protect } from '@clerk/nextjs';
 
 interface CreateDeckDialogProps {
   trigger?: React.ReactNode;
@@ -586,12 +587,19 @@ You now have ${totalCardsAfter} total cards. You can generate more to add to the
               disabled={isLoading || isGenerating}
               placeholder="e.g., 10"
             />
-            <div className="flex items-start gap-2 p-2 rounded-md bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 dark:text-yellow-400">
-              <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-              <p className="text-xs">
-                <strong>Free Plan Limit:</strong> Free users can generate up to 10 cards at a time with AI. Premium users can generate up to 100 cards per batch. The server will enforce this limit.
-              </p>
-            </div>
+            <Protect
+              feature="ai_flashcard_generation"
+              fallback={
+                <div className="flex items-start gap-2 p-2 rounded-md bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 dark:text-yellow-400">
+                  <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs">
+                    <strong>Free Plan Limit:</strong> Free users can generate up to 10 cards at a time with AI. Premium users can generate up to 100 cards per batch. The server will enforce this limit.
+                  </p>
+                </div>
+              }
+            >
+              {null}
+            </Protect>
             <p className="text-xs text-muted-foreground">
               ☁️ Cptain AI (Sovereign Cloud) can handle larger batches with better quality. Privacy and secure by design.
             </p>
