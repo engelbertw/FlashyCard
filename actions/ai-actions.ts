@@ -4,7 +4,7 @@ import { auth } from '@clerk/nextjs/server';
 import { parseAndNormalizeFlashcards, removeDuplicateCards } from '@/lib/text-utils';
 
 /**
- * Authenticate with Cptain API and get access token
+ * Authenticate with Cptain API and get access token using OAuth2 client credentials flow
  */
 async function getCptainAuthToken(): Promise<{ 
   token: string | null; 
@@ -12,89 +12,118 @@ async function getCptainAuthToken(): Promise<{
   authSucceeded?: boolean;
   authData?: any;
 }> {
-  const authUrl = process.env.CPTAIN_AUTH_URL;
-  const apiKey = process.env.CPTAIN_API_KEY;
+  const authUrl = (process.env.CPTAIN_AUTH_URL || 'https://auth.cptain.nl').trim();
+  const clientId = process.env.CPTAIN_CLIENT_ID?.trim();
+  const clientSecret = (process.env.CPTAIN_CLIENT_SECRET || process.env.CPTAIN_API_KEY)?.trim(); // Fallback to API_KEY for backward compatibility
+  const realm = (process.env.CPTAIN_REALM || 'pink-roccade-pz').trim(); // Default to 'pink-roccade-pz' if not specified
 
-  console.log('[Cptain Auth] Starting authentication...');
-  console.log('[Cptain Auth] Auth URL configured:', !!authUrl);
-  console.log('[Cptain Auth] API Key configured:', !!apiKey);
+  console.log('[Cptain Auth] Starting OAuth2 client credentials authentication...');
+  console.log('[Cptain Auth] Auth URL:', authUrl);
+  console.log('[Cptain Auth] Realm:', realm);
+  console.log('[Cptain Auth] Client ID configured:', !!clientId);
+  console.log('[Cptain Auth] Client ID length:', clientId?.length || 0);
+  console.log('[Cptain Auth] Client Secret configured:', !!clientSecret);
+  console.log('[Cptain Auth] Client Secret length:', clientSecret?.length || 0);
 
-  if (!authUrl || !apiKey) {
-    const error = 'Cptain API credentials not configured in .env file';
+  if (!authUrl || !clientId || !clientSecret) {
+    const missing = [];
+    if (!authUrl) missing.push('CPTAIN_AUTH_URL');
+    if (!clientId) missing.push('CPTAIN_CLIENT_ID');
+    if (!clientSecret) missing.push('CPTAIN_CLIENT_SECRET (or CPTAIN_API_KEY)');
+    
+    const error = `Cptain API credentials not configured in .env file. Missing: ${missing.join(', ')}`;
+    console.error('[Cptain Auth] Error:', error);
+    return { token: null, error };
+  }
+
+  // Additional validation: check if values are not just whitespace
+  if (clientId.length === 0 || clientSecret.length === 0) {
+    const error = 'Cptain API credentials are empty or contain only whitespace. Please check your .env file.';
     console.error('[Cptain Auth] Error:', error);
     return { token: null, error };
   }
 
   try {
-    // Use the correct Cptain API auth endpoint: /v0/auth
-    const authEndpoint = `${authUrl}/v0/auth`;
+    // Build OAuth2 token endpoint URL (Keycloak/OpenID Connect format)
+    const tokenUrl = `${authUrl}/realms/${realm}/protocol/openid-connect/token`;
     
-    console.log('[Cptain Auth] Auth URL:', authUrl);
-    console.log('[Cptain Auth] Auth Endpoint:', authEndpoint);
-    console.log('[Cptain Auth] API Key (first 10 chars):', apiKey.substring(0, 10) + '...');
+    console.log('[Cptain Auth] Token URL:', tokenUrl);
+    console.log('[Cptain Auth] Using OAuth2 client credentials flow');
 
-    // Try different authentication payload formats
-    const authPayloads = [
-      { apiKey: apiKey },
-      { api_key: apiKey },
-      { key: apiKey },
-      { token: apiKey },
-    ];
+    // Prepare form data (application/x-www-form-urlencoded)
+    const formData = new URLSearchParams();
+    formData.append('grant_type', 'client_credentials');
+    formData.append('client_id', clientId);
+    formData.append('client_secret', clientSecret);
 
-    for (const payload of authPayloads) {
+    console.log('[Cptain Auth] Sending request to:', tokenUrl);
+    console.log('[Cptain Auth] Client ID (first 10 chars):', clientId.substring(0, 10) + '...');
+    console.log('[Cptain Auth] Client Secret (first 10 chars):', clientSecret.substring(0, 10) + '...');
+
+    // Make token request
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formData.toString(),
+    });
+
+    console.log(`[Cptain Auth] Response status: ${response.status}`);
+
+    if (!response.ok) {
+      let errorText = '';
+      let errorJson: any = null;
+      
       try {
-        console.log(`[Cptain Auth] Trying POST ${authEndpoint} with payload:`, Object.keys(payload));
-
-        const response = await fetch(authEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
-
-        console.log(`[Cptain Auth] Response status: ${response.status}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('[Cptain Auth] ✓ Response status 200 OK!');
-          console.log('[Cptain Auth] Response data keys:', Object.keys(data));
-          console.log('[Cptain Auth] Full response data:', JSON.stringify(data, null, 2));
-          
-          // Check for token in various fields
-          const token = data.token || data.access_token || data.accessToken || data.bearer_token || data.jwt;
-          
-          if (token) {
-            console.log('[Cptain Auth] ✓ Token found in response!');
-            return { token };
-          } else {
-            // If no token but response is OK, maybe we need to use the API key directly
-            // or the authentication works differently (session-based, etc.)
-            console.log('[Cptain Auth] ⚠️  No token field found in response');
-            console.log('[Cptain Auth] Response contains:', {
-              realm: !!data.realm,
-              username: !!data.username, 
-              roles: !!data.roles,
-              hasOtherFields: Object.keys(data).filter(k => !['realm', 'username', 'roles'].includes(k))
-            });
-            
-            // Maybe the API uses the original API key for requests?
-            // Return a special indicator that auth succeeded but we use API key
-            return { token: null, authSucceeded: true, authData: data };
-          }
-        } else {
-          const errorText = await response.text();
-          console.log(`[Cptain Auth] Failed with status ${response.status}:`, errorText.substring(0, 200));
+        errorText = await response.text();
+        // Try to parse as JSON
+        try {
+          errorJson = JSON.parse(errorText);
+        } catch {
+          // Not JSON, use as text
         }
-      } catch (error) {
-        console.log(`[Cptain Auth] Request error:`, error);
+      } catch (e) {
+        errorText = 'Could not read error response';
       }
+      
+      console.error(`[Cptain Auth] Error ${response.status}: ${response.statusText}`);
+      console.error('[Cptain Auth] Error details:', errorText.substring(0, 500));
+      
+      // Provide more helpful error message for 401
+      if (response.status === 401) {
+        const errorMsg = errorJson?.error_description || errorJson?.error || errorText;
+        return {
+          token: null,
+          error: `Authentication failed: Invalid client credentials (401 Unauthorized). ${errorMsg}. Please verify your CPTAIN_CLIENT_ID and CPTAIN_CLIENT_SECRET in the .env file are correct and have no extra spaces or quotes.`
+        };
+      }
+      
+      return {
+        token: null,
+        error: `Authentication failed: ${response.status} ${response.statusText}. ${errorText.substring(0, 200)}`
+      };
     }
 
-    // If all payloads failed
-    const error = `Authentication failed on ${authEndpoint}. Check API key in .env file.`;
-    console.error('[Cptain Auth]', error);
-    return { token: null, error };
+    const data = await response.json();
+    console.log('[Cptain Auth] ✓✓✓ SUCCESS! Token obtained');
+    console.log('[Cptain Auth] Response keys:', Object.keys(data));
+
+    // Extract access token from OAuth2 response
+    const token = data.access_token;
+
+    if (token) {
+      console.log('[Cptain Auth] ✓ Access token found!');
+      return { token };
+    } else {
+      console.error('[Cptain Auth] ⚠️  No access_token in response');
+      console.error('[Cptain Auth] Response:', JSON.stringify(data, null, 2));
+      return {
+        token: null,
+        error: 'No access_token in authentication response',
+        authData: data
+      };
+    }
 
   } catch (error) {
     console.error('[Cptain Auth] Unexpected error:', error);
@@ -131,23 +160,14 @@ export async function generateCardsWithCptainAI(
     console.log('[Cptain] Starting card generation...');
     
     // Call Cptain API
-    const apiUrl = process.env.CPTAIN_API_URL;
-    const apiKey = process.env.CPTAIN_API_KEY;
+    const apiUrl = process.env.CPTAIN_API_URL || 'https://api.cptain.nl/api/v0';
+    const apiKey = process.env.CPTAIN_API_KEY; // Optional, used as fallback if OAuth2 fails
     
-    if (!apiUrl) {
-      return { success: false, error: 'Cptain API URL not configured in .env file' };
-    }
-    
-    if (!apiKey) {
-      return { success: false, error: 'Cptain API Key not configured in .env file' };
-    }
-
     console.log('[Cptain] API URL:', apiUrl);
-    console.log('[Cptain] API Key configured:', !!apiKey);
     console.log('[Cptain] Calling API with:', { description, cardCount });
     
-    // Get authentication token from /v0/auth (REQUIRED for Cptain API)
-    console.log('[Cptain] Attempting authentication via /v0/auth...');
+    // Get authentication token via OAuth2 client credentials flow (REQUIRED for Cptain API)
+    console.log('[Cptain] Attempting OAuth2 authentication...');
     const authResult = await getCptainAuthToken();
     const authToken = authResult.token || null;
     
@@ -163,119 +183,128 @@ export async function generateCardsWithCptainAI(
       console.log('[Cptain] ❌ Failed to authenticate:', authResult.error);
       return {
         success: false,
-        error: `Authentication required but failed: ${authResult.error}. Check your API key in .env file.`,
+        error: `Authentication required but failed: ${authResult.error}. Check your credentials in .env file (CPTAIN_AUTH_URL, CPTAIN_CLIENT_ID, CPTAIN_CLIENT_SECRET, and optionally CPTAIN_REALM).`,
       };
     }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
 
-    // Try different API endpoints based on Cptain API documentation
-    const endpoints = [
-      `${apiUrl}/v0/generate-flashcards`,
-      `${apiUrl}/v0/flashcards`,
-      `${apiUrl}/v0/generate`,
-      `${apiUrl}/v0/cards`,
-      `${apiUrl}/v0/ai/generate`,
-      `${apiUrl}/v1/generate-flashcards`,
-      `${apiUrl}/generate-flashcards`,
-      `${apiUrl}/flashcards`,
-    ];
+    // Use the correct LLM chat endpoint
+    // Based on: https://api.cptain.nl/api/v0/task/llm/api/chat
+    const endpoint = `${apiUrl}/task/llm/api/chat`;
 
     let data: any = null;
     let lastError: string = '';
-    let successEndpoint: string = '';
 
-    for (const endpoint of endpoints) {
-      // Try multiple authentication methods for each endpoint
-      const authMethods = [
-        // Method 1: Bearer token from /v0/auth (if we got one)
-        authToken ? {
+    // Use OAuth2 Bearer token (primary method)
+    if (!authToken) {
+      throw new Error('Authentication token is required but was not obtained. Please check your credentials.');
+    }
+
+    // Try different request body formats for the LLM chat endpoint
+    // The API uses Ollama with gemma3 model
+    const prompt = `Generate ${cardCount} flashcards about: ${description}. Format each card as "front | back" on separate lines.`;
+    
+    const requestBodyFormats = [
+      // Format 1: OpenAI-style chat format with gemma3 model (primary)
+      {
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        model: 'gemma3',
+        temperature: 0.7,
+      },
+      // Format 2: OpenAI-style chat format without model (fallback)
+      {
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+      },
+      // Format 3: Simple prompt format without model
+      {
+        prompt: prompt,
+        temperature: 0.7,
+      },
+      // Format 4: Task-specific format
+      {
+        task: 'generate_flashcards',
+        description: description,
+        count: cardCount,
+        format: 'front | back',
+      },
+      // Format 5: Direct content format
+      {
+        content: prompt,
+      },
+    ];
+
+    for (const requestBody of requestBodyFormats) {
+      try {
+        console.log(`[Cptain] Trying endpoint: ${endpoint}`);
+        console.log(`[Cptain] Request body format:`, Object.keys(requestBody).join(', '));
+        
+        const response = await fetch(endpoint, {
+          method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${authToken}`,
+            'accept': 'application/json',
           },
-          method: 'Bearer token from /v0/auth'
-        } : null,
-        // Method 2: Token without Bearer prefix (if we got one)
-        authToken ? {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': authToken,
-          },
-          method: 'Token without Bearer prefix'
-        } : null,
-        // Method 3: X-API-Key header with original key (LIKELY - since auth returns no token)
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': apiKey,
-          },
-          method: 'X-API-Key header with original key'
-        },
-        // Method 4: Authorization: Bearer with original API key
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          method: 'Authorization: Bearer with original key'
-        },
-        // Method 5: Authorization: API key directly
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': apiKey,
-          },
-          method: 'Authorization with API key directly'
-        },
-      ].filter(Boolean);
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeout));
 
-      for (const authMethod of authMethods) {
-        try {
-          console.log(`[Cptain] Trying: ${endpoint} with ${authMethod!.method}`);
+        console.log(`[Cptain] Response status: ${response.status}`);
+
+        if (response.ok) {
+          data = await response.json();
+          console.log('[Cptain] ✓ SUCCESS!');
+          console.log('[Cptain] Response keys:', Object.keys(data));
+          console.log('[Cptain] Response sample:', JSON.stringify(data).substring(0, 500));
+          break; // Success, exit loop
+        } else {
+          let errorText = '';
+          let errorJson: any = null;
           
-          // Try different request body formats that Cptain API might expect
-          const requestBody: any = {
-            description: description,
-            prompt: description,
-            topic: description,
-            count: cardCount,
-            cardCount: cardCount,
-            num_cards: cardCount,
-            format: 'flashcard',
-            type: 'flashcard',
-          };
-          
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: authMethod!.headers,
-            body: JSON.stringify(requestBody),
-            signal: controller.signal,
-          }).finally(() => clearTimeout(timeout));
-
-          console.log(`[Cptain] Response status: ${response.status}`);
-
-          if (response.ok) {
-            data = await response.json();
-            successEndpoint = endpoint;
-            console.log('[Cptain] ✓ SUCCESS! Endpoint:', endpoint);
-            console.log('[Cptain] ✓ Auth method:', authMethod!.method);
-            console.log('[Cptain] Response keys:', Object.keys(data));
-            console.log('[Cptain] Response sample:', JSON.stringify(data).substring(0, 500));
-            break; // Success, exit auth methods loop
-          } else {
-            const errorText = await response.text();
-            lastError = `${response.status} - ${errorText.substring(0, 200)}`;
-            console.log(`[Cptain] Failed: ${lastError}`);
+          try {
+            errorText = await response.text();
+            // Try to parse HTML error responses to extract JSON errors
+            const jsonMatch = errorText.match(/\{"detail":"[^"]+"\}/);
+            if (jsonMatch) {
+              try {
+                errorJson = JSON.parse(jsonMatch[0]);
+              } catch {}
+            }
+          } catch (e) {
+            errorText = 'Could not read error response';
           }
-        } catch (endpointError) {
-          lastError = endpointError instanceof Error ? endpointError.message : 'Unknown error';
-          console.log(`[Cptain] Error:`, lastError);
+          
+          lastError = `${response.status} - ${errorText.substring(0, 200)}`;
+          console.log(`[Cptain] Failed with format ${Object.keys(requestBody).join(', ')}: ${lastError}`);
+          
+          // If it's a model not found error, continue trying other formats
+          if (errorJson?.detail?.includes('model') && errorJson?.detail?.includes('not found')) {
+            console.log(`[Cptain] Model not found, trying next format...`);
+            continue; // Try next format
+          }
+          
+          // If it's not a 400 (bad request) or 404 (not found), don't try other formats
+          if (response.status !== 400 && response.status !== 404) {
+            break;
+          }
         }
+      } catch (endpointError) {
+        lastError = endpointError instanceof Error ? endpointError.message : 'Unknown error';
+        console.log(`[Cptain] Error:`, lastError);
       }
-      
-      if (data) break; // Success, exit endpoints loop
     }
 
     if (!data) {
@@ -303,12 +332,18 @@ export async function generateCardsWithCptainAI(
           back: (card.back || card.answer || card.definition || '').toString().trim(),
         }))
         .filter((card: any) => card.front && card.back);
-    } else if (data.text || data.response || data.content) {
-      // Format 3: Text that needs parsing
-      const generatedText = data.text || data.response || data.content;
+    } else if (data.choices && Array.isArray(data.choices) && data.choices.length > 0) {
+      // Format 3: Chat API response (OpenAI-style: { choices: [{ message: { content: "..." } }] })
+      const content = data.choices[0]?.message?.content || data.choices[0]?.content || '';
+      if (content) {
+        parsedCards = parseAndNormalizeFlashcards(content);
+      }
+    } else if (data.text || data.response || data.content || data.message?.content) {
+      // Format 4: Text that needs parsing (various formats)
+      const generatedText = data.text || data.response || data.content || data.message?.content;
       parsedCards = parseAndNormalizeFlashcards(generatedText);
     } else if (typeof data === 'string') {
-      // Format 4: Direct text response
+      // Format 5: Direct text response
       parsedCards = parseAndNormalizeFlashcards(data);
     }
 
